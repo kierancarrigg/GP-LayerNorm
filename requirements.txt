@@ -1,0 +1,24 @@
+# GP-LayerNorm: Genetic Programming for LayerNorm Replacement
+# See README for full install instructions.
+#
+# Step 1: conda install pytorch==2.5.1 torchvision==0.20.1 pytorch-cuda=12.4 -c pytorch -c nvidia
+# Step 2: pip install kozax==0.0.13 --no-deps   (avoids torch/kozax sympy metadata conflict)
+# Step 3: pip install -r requirements.txt
+
+# Core (torch/torchvision managed by conda)
+torch==2.5.1
+torchvision==0.20.1
+timm==1.0.26
+numpy==2.4.3
+
+# JAX for GP evolution (kozax installed separately before this file)
+jax==0.10.0
+jaxlib==0.10.0
+optax==0.2.8
+
+# GP layer code generation
+pandas==2.3.3
+jaxtyping==0.3.9
+
+# Logging
+wandb==0.26.1
