@@ -2,7 +2,7 @@
 
 **Evolving Custom Normalization Functions for Vision Transformers**
 
-This repository is the official implementation of *Evolving Layer-Specific Scalar Functions for Hardware-Aware Transformer Adaptation* (paper link to be added upon publication).
+This repository is the official implementation of *Evolving Layer-Specific Scalar Functions for Hardware-Aware Transformer Adaptation* (arXiv link to be added).
 This repository implements a genetic programming (GP) approach to evolve custom replacement functions for LayerNorm in vision transformers. Building upon the DyT (Dynamic Tanh) work from "Transformers without Normalization" (CVPR 2025), we explore whether GP can discover more effective normalization alternatives beyond simple parametric forms.
 
 ## Overview
