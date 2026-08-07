@@ -248,7 +248,7 @@ If you use this work in your research, please cite:
 ```bibtex
 @article{carrigg2026gplayernorm,
   title={Evolving Layer-Specific Scalar Functions for Hardware-Aware Transformer Adaptation},
-  author={Carrigg, Kieran},
+  author={Carrigg, Kieran and de Vries, Sigur and Sadough, Amirhossein and van Gerven, Marcel},
   journal={arXiv preprint arXiv:2605.14047},
   year={2026}
 }
