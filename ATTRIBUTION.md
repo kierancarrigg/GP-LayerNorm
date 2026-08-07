@@ -86,7 +86,7 @@ All dependencies are licensed under permissive licenses (MIT, Apache 2.0) that a
 
 ## Kozax
 
-**Source**: https://github.com/kc-ml2/kozax  
+**Source**: https://github.com/sdevries0/Kozax  
 **License**: MIT License  
 **Install**: `pip install kozax`
 

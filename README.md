@@ -19,7 +19,7 @@ LayerNorm is a critical component in transformers, but recent work (DyT) has sho
 - **Finetuning Framework**: Efficient finetuning strategies for both GP-evolved and DyT models
 
 
-GP evolution is powered by [Kozax](https://github.com/kc-ml2/kozax), an external JAX-based genetic programming library (`pip install kozax`).
+GP evolution is powered by [Kozax](https://github.com/sdevries0/Kozax), an external JAX-based genetic programming library (`pip install kozax`).
 
 ## Project Structure
 
