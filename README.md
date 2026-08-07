@@ -269,6 +269,7 @@ Please also cite the original DyT work this builds upon:
 
 This project builds upon the excellent work of:
 - **DyT** ([Transformers without Normalization](https://github.com/jiachenzhu/DyT)) by Jiachen Zhu et al.
+- **Kozax** ([sdevries0/Kozax](https://github.com/sdevries0/Kozax)) — the JAX-based genetic programming library powering GP evolution
 - **timm** library by Ross Wightman
 - JAX ecosystem
 
