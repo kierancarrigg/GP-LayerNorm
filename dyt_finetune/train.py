@@ -171,6 +171,8 @@ def get_args_parser():
     p.add_argument("--wd_backbone", default=0.02, type=float,
                help="Weight decay for backbone params.")
     p.add_argument("--max_norm", default=None, type=float)
+    p.add_argument("--lr_scheduler", default="cosine", type=str, choices=["cosine", "none"],
+                   help="LR schedule: 'cosine' anneals the LR to zero over --epochs, 'none' keeps it constant")
     p.add_argument("--weight_decay", default=0.0, type=float)
     p.add_argument("--train_mode", default="alpha_affine", choices=["alpha", "alpha_affine", "affine", "full"])
     p.add_argument("--eval_only", type=str2bool, default=False)
@@ -342,6 +344,11 @@ def main(args):
 
     optimizer = torch.optim.AdamW(param_groups, weight_decay=args.weight_decay, lr=args.lr)
 
+    # LR schedule (stepped once per epoch, after training)
+    scheduler = None
+    if args.lr_scheduler == "cosine":
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
+
     criterion = torch.nn.CrossEntropyLoss()
 
     # AMP scaler
@@ -400,6 +407,9 @@ def main(args):
                     update_freq=1,
                     use_amp=args.use_amp,
                 )
+
+            if scheduler is not None:
+                scheduler.step()
 
             model.eval()
             test_stats = evaluate(data_loader_val, model, device, use_amp=args.use_amp)

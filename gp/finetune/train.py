@@ -67,6 +67,8 @@ def get_args_parser():
     parser.add_argument('--batch_size', default=512, type=int)
     parser.add_argument('--epochs', default=20, type=int)
     parser.add_argument('--lr', default=1e-3, type=float)
+    parser.add_argument('--lr_scheduler', default='cosine', type=str, choices=['cosine', 'none'],
+                        help="LR schedule: 'cosine' anneals the LR to zero over --epochs, 'none' keeps it constant")
     parser.add_argument('--weight_decay', default=0.05, type=float)
     # --- Model Parameters ---
     parser.add_argument('--model', default='vit_base_patch16_224', type=str, help='Name of model to train')
@@ -244,7 +246,12 @@ def main(args):
 
     # Optimizer
     optimizer = create_optimizer(args, model)
-    
+
+    # LR schedule (stepped once per epoch, after training)
+    scheduler = None
+    if args.lr_scheduler == 'cosine':
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
+
     # Loss scaling
     loss_scaler = NativeScalerWithGradNormCount() if args.use_amp else None
     criterion = torch.nn.CrossEntropyLoss()
@@ -318,7 +325,10 @@ def main(args):
                 update_freq=1,
                 use_amp=args.use_amp
             )
-        
+
+        if scheduler is not None:
+            scheduler.step()
+
         if args.output_dir:
             # 1. Always save the LAST epoch
             last_ckpt_path = os.path.join(args.output_dir, 'checkpoint-last.pth')
