@@ -19,7 +19,7 @@ LayerNorm is a critical component in transformers, but recent work (DyT) has sho
 - **Finetuning Framework**: Efficient finetuning strategies for both GP-evolved and DyT models
 
 
-GP evolution is powered by [Kozax](https://github.com/sdevries0/Kozax), an external JAX-based genetic programming library (`pip install kozax`).
+GP evolution is powered by [Kozax](https://github.com/sdevries0/Kozax), an external JAX-based genetic programming library. This project uses Kozax's FLOP-based complexity feature, which is not yet in a PyPI release — see [Installation](#installation) for the pinned git install.
 
 ## Project Structure
 
@@ -33,7 +33,7 @@ GP-LayerNorm/
 ├── baselines/              # Baseline implementations (dyt.py — MIT licensed, adapted from DyT)
 ├── utils/                  # Shared utilities (datasets.py, training.py, helpers.py)
 ├── scripts/                # SLURM job script templates
-└── requirements.txt        # pip dependencies (includes kozax>=0.0.13)
+└── requirements.txt        # pip dependencies (kozax installed separately from git, see Installation)
 ```
 
 ## Installation
@@ -53,12 +53,24 @@ conda activate gp-layernorm
 # Install PyTorch
 conda install pytorch==2.5.1 torchvision==0.20.1 pytorch-cuda=12.4 -c pytorch -c nvidia
 
-# Install kozax separately first (avoids a sympy version conflict with torch's PyPI metadata)
-pip install kozax==0.0.13 --no-deps
+# Install kozax from a pinned commit — its FLOP-based complexity feature isn't
+# on PyPI yet, and kozax doesn't track packaging metadata in git, so we supply
+# a minimal pyproject.toml ourselves (see note below)
+git clone -q https://github.com/sdevries0/Kozax.git /tmp/kozax && cd /tmp/kozax && git checkout -q 8fa0187
+printf '[build-system]\nrequires = ["setuptools>=61.0"]\nbuild-backend = "setuptools.build_meta"\n\n[project]\nname = "kozax"\nversion = "0.1.4+g8fa0187"\n\n[tool.setuptools.packages.find]\ninclude = ["kozax*"]\n' > pyproject.toml
+pip install --no-deps . && cd - && rm -rf /tmp/kozax
 
 # Install remaining dependencies
 pip install -r requirements.txt
 ```
+
+> **Why not a plain `pip install kozax`?** This project needs Kozax's FLOP-based
+> complexity objective, which isn't in any PyPI release yet (latest is 0.1.4, which
+> predates the upstream commit that added it) — so we pin the exact commit
+> (`8fa0187`) this project's results were generated against. That commit has no
+> `pyproject.toml`: kozax's own `.gitignore` excludes it from version control, so
+> the snippet above supplies a minimal one ourselves — it's a scratch clone, not
+> a fork or a modification to kozax's repository.
 
 ## Usage
 
@@ -97,9 +109,17 @@ python gp/evolution/main.py \
     --tournament_size 7 \
     --penalty_weight 0.005 \
     --complexity_objective true \
-    --constant_optimization_method gradient \
+    --constant_optimization true \
     --constant_optimization_steps 10
 ```
+
+Complexity is measured in **FLOPs per operator** (`tanh` 23, `sigmoid` 22, `+`/`*` 1, `neg` 0, `clip` 1),
+so evolution trades accuracy against real hardware cost rather than raw expression size.
+Each Pareto-front solution is written to the results CSV with its exact FLOP count.
+
+`clip` is the one deliberate exception: its true cost is 0 FLOPs (a bounds check, no
+arithmetic), and 0 is what every reported figure uses. It is charged 1 FLOP *during the
+search only*, as a regulariser — at zero cost, GP stacks redundant clips for free.
 
 </details>
 
@@ -111,11 +131,19 @@ Convert evolved GP expressions from the results CSV into PyTorch module files:
 ```bash
 python gp/layers/generate_code.py \
     --input_csv gp_results.csv \
-    --output_dir gp/layers/
+    --output_dir gp/layers/ \
+    --strategy kneedle
 ```
 
 This generates `gp/layers/evolved_layers_seed_1.py` through `evolved_layers_seed_5.py`.
 The pre-generated files used in the paper are already included in the repo — you only need this step if you run new evolution.
+
+`--strategy` controls how one solution is picked from each layer's Pareto front:
+
+| Strategy | Behaviour |
+|---|---|
+| `kneedle` (default) | Knee point of the (FLOPs, MSE) front — the elbow beyond which extra FLOPs buy little accuracy |
+| `min_mse` | Lowest MSE regardless of cost |
 
 </details>
 
@@ -124,6 +152,8 @@ See [Reproducing Paper Results](#reproducing-paper-results) for finetuning comma
 ## Reproducing Paper Results
 
 All experiments use `vit_base_patch16_224` pretrained on ImageNet. Replace `/path/to/imagenet` with your ImageNet root. GP variants are run independently for seeds 1–5.
+
+> All commands below match the exact hyperparameters of the runs behind the results table.
 
 ### GP Variants
 
@@ -134,7 +164,8 @@ All experiments use `vit_base_patch16_224` pretrained on ImageNet. Replace `/pat
 python gp/finetune/train.py \
     --gp_seed 1 \
     --data_path /path/to/imagenet \
-    --lr 2e-3 --weight_decay 0.0 --drop_path 0.0 \
+    --lr 1e-3 --lr_scheduler none \
+    --weight_decay 0.0 --drop_path 0.0 \
     --output_dir ./checkpoints/gp_a_seed1
 ```
 
@@ -148,7 +179,8 @@ python gp/finetune/train.py \
     --gp_seed 1 \
     --data_path /path/to/imagenet \
     --train_mode full \
-    --lr 1e-5 --weight_decay 0.0 \
+    --lr 1e-5 --lr_scheduler cosine \
+    --weight_decay 0.0 --drop_path 0.0 \
     --output_dir ./checkpoints/gp_f_seed1
 ```
 
@@ -162,7 +194,8 @@ python gp/finetune/train.py \
     --gp_seed 1 \
     --data_path /path/to/imagenet \
     --train_mode full --distill_logit true \
-    --lr 1e-5 --weight_decay 0.0 \
+    --lr 1e-5 --lr_scheduler cosine \
+    --weight_decay 0.05 --drop_path 0.2 \
     --output_dir ./checkpoints/gp_d_seed1
 ```
 
@@ -177,7 +210,7 @@ python gp/finetune/train.py \
 python dyt_finetune/train.py \
     --data_path /path/to/imagenet \
     --train_mode affine \
-    --lr 8e-3 \
+    --lr 8e-3 --lr_scheduler cosine \
     --output_dir ./checkpoints/dyt_a
 ```
 
@@ -191,6 +224,7 @@ python dyt_finetune/train.py \
     --data_path /path/to/imagenet \
     --train_mode full \
     --lr_backbone 2e-5 --lr_affine 1e-4 --lr_alpha 5e-5 \
+    --lr_scheduler cosine \
     --output_dir ./checkpoints/dyt_f
 ```
 
@@ -204,6 +238,7 @@ python dyt_finetune/train.py \
     --data_path /path/to/imagenet \
     --train_mode full --distill_logit true \
     --lr_backbone 3e-5 --lr_affine 1e-4 --lr_alpha 5e-5 \
+    --lr_scheduler cosine \
     --output_dir ./checkpoints/dyt_d
 ```
 
@@ -218,7 +253,8 @@ python dyt_finetune/train.py \
 python dyt_finetune/train.py \
     --data_path /path/to/imagenet \
     --use_dyt false --train_mode full \
-    --lr 1e-6 --drop_path 0.1 \
+    --lr 1e-6 --lr_scheduler cosine \
+    --weight_decay 0.05 --drop_path 0.2 \
     --output_dir ./checkpoints/ln
 ```
 
@@ -226,20 +262,28 @@ python dyt_finetune/train.py \
 
 ## Results
 
-Results on the ImageNet-1K validation set, averaged across 5 independent runs (ViT-B/16, 20 epochs fine-tuning).
+Classification performance of the evolved symbolic normalizations (GP) against standard LayerNorm and
+Dynamic Tanh (DyT) baselines on the ImageNet-1K validation set, using a pretrained ViT-B architecture.
+All fine-tuned variants are trained for 20 epochs and evaluated across 5 independent runs (mean ± std).
+Bold marks the better method within each fine-tuning regime.
 
 | Method | Top-1 Acc (%) | Top-5 Acc (%) |
 |--------|--------------|---------------|
-| LN (Full fine-tuning) | 84.94 ± 0.01 | 97.43 ± 0.01 |
-| | | |
-| DyT-A | 82.99 ± 0.07 | 96.65 ± 0.02 |
-| GP-A (Ours) | 82.78 ± 0.08 | 96.58 ± 0.04 |
-| | | |
-| DyT-F | 82.12 ± 0.05 | 96.32 ± 0.03 |
-| GP-F (Ours) | **83.70 ± 0.04** | **96.99 ± 0.02** |
-| | | |
-| DyT-D | 82.66 ± 0.09 | 96.56 ± 0.03 |
-| GP-D (Ours) | **84.25 ± 0.02** | **97.18 ± 0.02** |
+| ***Literature & reference baselines*** | | |
+| Pre-trained ViT-B (no fine-tuning) | 80.99 | 95.73 |
+| Original DyT (trained from scratch) † | 82.5 | — |
+| Standard ViT-B (LN fine-tuning) | 84.99 ± 0.02 | 97.43 ± 0.02 |
+| ***Affine-only fine-tuning*** | | |
+| DyT-A | **83.19 ± 0.03** | **96.74 ± 0.02** |
+| GP-A (Ours) | 82.48 ± 0.20 | 96.43 ± 0.06 |
+| ***Full fine-tuning*** | | |
+| DyT-F | 82.81 ± 0.02 | 96.60 ± 0.02 |
+| GP-F (Ours) | **84.07 ± 0.06** | **97.10 ± 0.03** |
+| ***Knowledge distillation*** | | |
+| DyT-D | 83.36 ± 0.04 | 96.79 ± 0.05 |
+| GP-D (Ours) | **84.32 ± 0.01** | **97.15 ± 0.01** |
+
+† Reported supervised classification accuracy from the original DyT paper (Zhu et al., CVPR 2025).
 
 ## Citation
 
