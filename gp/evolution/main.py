@@ -44,8 +44,8 @@ def get_args():
     p.add_argument('--tournament_size', default=7, type=int)
     p.add_argument('--penalty_weight', default=0.005, type=float)
     p.add_argument('--complexity_objective', type=str2bool, default=True)
-    p.add_argument('--constant_optimization_method', type=str, default='gradient',
-                   help="Constant optimisation method: None to disable, 'gradient' to enable (default). Matches kozax 0.0.13 API.")
+    p.add_argument('--constant_optimization', type=str2bool, default=True,
+                   help="Whether to numerically optimise constants within evolved expressions.")
     p.add_argument('--constant_optimization_steps', type=int, default=1)
     return p.parse_args()
 
@@ -116,8 +116,8 @@ def main():
     print("\n" + "="*60)
     print("GP Operators:")
     print("="*60)
-    for op_name, _, arity, prob in operator_list:
-        print(f"  {op_name}: arity={arity}, prob={prob:.2f}")
+    for op in operator_list:
+        print(f"  {op['string']}: arity={op['arity']}, prob={op['prob']:.2f}, FLOPs={op['flops']}")
     print("="*60 + "\n")
     
     variable_list = ["x"]
@@ -139,7 +139,7 @@ def main():
         device_type=device_type,
         constant_sd=1.0,
         complexity_objective=args.complexity_objective,
-        constant_optimization_method=args.constant_optimization_method,
+        constant_optimization=args.constant_optimization,
         constant_optimization_steps=args.constant_optimization_steps
     )
 
@@ -149,7 +149,7 @@ def main():
         writer = csv.writer(csv_file)
         # Only write header if new file
         if mode == 'w':
-            writer.writerow(['Layer', 'Run_Seed', 'Complexity_Rank', 'Train_MSE', 'Val_MSE', 'Expression'])
+            writer.writerow(['Layer', 'Run_Seed', 'Complexity_Rank', 'FLOPs', 'Train_MSE', 'Val_MSE', 'Expression'])
 
         # 1. Outer Loop: Layers
         for layer_name in layers_to_process:
@@ -191,12 +191,16 @@ def main():
                 for rank, (train_mse, prog) in enumerate(zip(pareto_fitness, pareto_solutions)):
                     expr_str = gp.expression_to_string(prog)
                     val_mse = float(fitness_fn(prog, val_data, gp.tree_evaluator))
-                    
+
+                    # prog[:,:,0] holds the operator indices for the tree; gp.operator_flops
+                    # maps each index to its FLOP cost, so the sum is the tree's total cost.
+                    exact_flops = float(jnp.sum(gp.operator_flops[prog[:, :, 0].astype(int)]))
+
                     if val_mse < best_val_mse_for_run:
                         best_val_mse_for_run = val_mse
-                    
+
                     writer.writerow([
-                        layer_name, seed_idx + 1, rank,
+                        layer_name, seed_idx + 1, rank, exact_flops,
                         float(train_mse), val_mse, expr_str
                     ])
                 

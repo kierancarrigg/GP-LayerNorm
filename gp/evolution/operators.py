@@ -25,21 +25,32 @@ def get_operator_list(
     *,
     use_probs: bool = True,
     probs: dict[str, float] | None = None,
-) -> list[tuple]:
+) -> list[dict]:
     """
-    Return Kozax operator tuples.
-    Each tuple: (name, function, arity[, probability])
+    Return Kozax operator dictionaries.
+    Each dict: {"string": name, "fn": function, "arity": arity, "prob": probability, "flops": flops}
+
+    The "flops" entry is the per-operator cost Kozax uses as the complexity
+    objective, replacing a plain node count.
+
+    Note on clip: its true cost is 0 FLOPs (a bounds check, no arithmetic), and
+    that is the cost used when reporting FLOPs for a solution. It is charged 1.0
+    here purely as a regulariser during evolution — at a true cost of 0.0 GP
+    stacked redundant clips for free, since they were complexity-neutral.
     """
     ops = [
-        ("+", add, 2),
-        ("*", mul, 2),
-        ("neg", neg, 1),
-        ("tanh", tanh, 1),
-        ("sigmoid", sigmoid, 1),
-        ("clip", clip, 1),
+        {"string": "+", "fn": add, "arity": 2, "flops": 1.0},
+        {"string": "*", "fn": mul, "arity": 2, "flops": 1.0},
+        {"string": "neg", "fn": neg, "arity": 1, "flops": 0.0},
+        {"string": "tanh", "fn": tanh, "arity": 1, "flops": 23.0},
+        {"string": "sigmoid", "fn": sigmoid, "arity": 1, "flops": 22.0},
+        {"string": "clip", "fn": clip, "arity": 1, "flops": 1.0},
     ]
 
     if not use_probs:
+        # Dummy probability keeps the dict shape consistent for Kozax
+        for op in ops:
+            op["prob"] = 0.0
         return ops
 
     # default weights (bias toward simple algebra + mild nonlinearity)
@@ -54,5 +65,7 @@ def get_operator_list(
     if probs is not None:
         default_probs.update(probs)
 
-    return [(name, fn, arity, float(default_probs.get(name, 0.1)))
-            for (name, fn, arity) in ops]
+    for op in ops:
+        op["prob"] = float(default_probs.get(op["string"], 0.1))
+
+    return ops

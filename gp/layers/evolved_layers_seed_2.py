@@ -1,7 +1,3 @@
-# Evolved GP expressions for ViT-B/16 - Seed 2
-# These layers replace LayerNorm in all 24 normalization positions of ViT-B/16.
-# Use apply_evolution() to inject these layers into a timm ViT-B model.
-
 import torch
 import torch.nn as nn
 import math
@@ -11,18 +7,21 @@ import math
 # We use isinstance checks to safely handle both Tensors and raw Python floats
 # without causing CUDA/CPU device mismatch errors.
 
-
 def clip(a):
     if isinstance(a, torch.Tensor):
         return torch.clamp(a, -5.0, 5.0)
     return max(-5.0, min(a, 5.0))
 
-    
 def sigmoid(a):
     if isinstance(a, torch.Tensor):
         return torch.sigmoid(a)
     return 1.0 / (1.0 + math.exp(-a))
-    
+
+def neg(a):
+    if isinstance(a, torch.Tensor):
+        return torch.neg(a)
+    return -a
+
 # --- 2. The Base Replacement Class ---
 class EvolvedLayer(nn.Module):
     def __init__(self, original_ln):
@@ -43,10 +42,10 @@ class EvolvedLayer(nn.Module):
 class Blocks0Norm1(EvolvedLayer):
     """
     Original: blocks.0.norm1
-    Equation: -0.526*x + 2.11*clip(x)
+    Equation: clip(1.55*x)
     """
     def forward(self, x):
-        x_norm = -0.526*x + 2.11*clip(x)
+        x_norm = clip(1.55*x)
         
         if self.weight is not None:
             return x_norm * self.weight + self.bias
@@ -55,10 +54,10 @@ class Blocks0Norm1(EvolvedLayer):
 class Blocks0Norm2(EvolvedLayer):
     """
     Original: blocks.0.norm2
-    Equation: 0.695*clip(2.32*x)
+    Equation: clip(1.62*x)
     """
     def forward(self, x):
-        x_norm = 0.695*clip(2.32*x)
+        x_norm = clip(1.62*x)
         
         if self.weight is not None:
             return x_norm * self.weight + self.bias
@@ -67,10 +66,10 @@ class Blocks0Norm2(EvolvedLayer):
 class Blocks1Norm1(EvolvedLayer):
     """
     Original: blocks.1.norm1
-    Equation: 0.674*clip(2.36*x)
+    Equation: clip(1.59*x)
     """
     def forward(self, x):
-        x_norm = 0.674*clip(2.36*x)
+        x_norm = clip(1.59*x)
         
         if self.weight is not None:
             return x_norm * self.weight + self.bias
@@ -79,10 +78,10 @@ class Blocks1Norm1(EvolvedLayer):
 class Blocks1Norm2(EvolvedLayer):
     """
     Original: blocks.1.norm2
-    Equation: 2.55*tanh(x + 0.0424)
+    Equation: clip(2.08*x)
     """
     def forward(self, x):
-        x_norm = 2.55*torch.tanh(x + 0.0424)
+        x_norm = clip(2.08*x)
         
         if self.weight is not None:
             return x_norm * self.weight + self.bias
@@ -91,10 +90,10 @@ class Blocks1Norm2(EvolvedLayer):
 class Blocks2Norm1(EvolvedLayer):
     """
     Original: blocks.2.norm1
-    Equation: -0.556*x + clip(2.68*x + 0.13)
+    Equation: clip(2.11*x)
     """
     def forward(self, x):
-        x_norm = -0.556*x + clip(2.68*x + 0.13)
+        x_norm = clip(2.11*x)
         
         if self.weight is not None:
             return x_norm * self.weight + self.bias
@@ -103,10 +102,10 @@ class Blocks2Norm1(EvolvedLayer):
 class Blocks2Norm2(EvolvedLayer):
     """
     Original: blocks.2.norm2
-    Equation: 2.5*tanh(x) + 0.13
+    Equation: clip(-2.01*neg(x))
     """
     def forward(self, x):
-        x_norm = 2.5*torch.tanh(x) + 0.13
+        x_norm = clip(-2.01*neg(x))
         
         if self.weight is not None:
             return x_norm * self.weight + self.bias
@@ -115,10 +114,10 @@ class Blocks2Norm2(EvolvedLayer):
 class Blocks3Norm1(EvolvedLayer):
     """
     Original: blocks.3.norm1
-    Equation: 2.62*tanh(x + 0.0656)
+    Equation: clip(2.16*x)
     """
     def forward(self, x):
-        x_norm = 2.62*torch.tanh(x + 0.0656)
+        x_norm = clip(2.16*x)
         
         if self.weight is not None:
             return x_norm * self.weight + self.bias
@@ -127,10 +126,10 @@ class Blocks3Norm1(EvolvedLayer):
 class Blocks3Norm2(EvolvedLayer):
     """
     Original: blocks.3.norm2
-    Equation: -0.413*x + 3.72*tanh(x) - 0.413*tanh(2*x*(x + 1.48)) + 0.205
+    Equation: -0.549*x + clip(2.68*x + 0.159)
     """
     def forward(self, x):
-        x_norm = -0.413*x + 3.72*torch.tanh(x) - 0.413*torch.tanh(2*x*(x + 1.48)) + 0.205
+        x_norm = -0.549*x + clip(2.68*x + 0.159)
         
         if self.weight is not None:
             return x_norm * self.weight + self.bias
@@ -139,10 +138,10 @@ class Blocks3Norm2(EvolvedLayer):
 class Blocks4Norm1(EvolvedLayer):
     """
     Original: blocks.4.norm1
-    Equation: -0.747*x + clip(2.16*x) + tanh(x) + 0.167
+    Equation: clip(2.16*x)
     """
     def forward(self, x):
-        x_norm = -0.747*x + clip(2.16*x) + torch.tanh(x) + 0.167
+        x_norm = clip(2.16*x)
         
         if self.weight is not None:
             return x_norm * self.weight + self.bias
@@ -151,10 +150,10 @@ class Blocks4Norm1(EvolvedLayer):
 class Blocks4Norm2(EvolvedLayer):
     """
     Original: blocks.4.norm2
-    Equation: 2.65*tanh(clip(x)) + 0.212
+    Equation: 0.556*clip(3.86*x)
     """
     def forward(self, x):
-        x_norm = 2.65*torch.tanh(clip(x)) + 0.212
+        x_norm = 0.556*clip(3.86*x)
         
         if self.weight is not None:
             return x_norm * self.weight + self.bias
@@ -163,10 +162,10 @@ class Blocks4Norm2(EvolvedLayer):
 class Blocks5Norm1(EvolvedLayer):
     """
     Original: blocks.5.norm1
-    Equation: -0.494*x + clip(2.84*x) + 0.223
+    Equation: clip(2.23*x)
     """
     def forward(self, x):
-        x_norm = -0.494*x + clip(2.84*x) + 0.223
+        x_norm = clip(2.23*x)
         
         if self.weight is not None:
             return x_norm * self.weight + self.bias
@@ -175,10 +174,10 @@ class Blocks5Norm1(EvolvedLayer):
 class Blocks5Norm2(EvolvedLayer):
     """
     Original: blocks.5.norm2
-    Equation: -0.674*x + 2.78*clip(x) + 0.195
+    Equation: clip(2.06*x)
     """
     def forward(self, x):
-        x_norm = -0.674*x + 2.78*clip(x) + 0.195
+        x_norm = clip(2.06*x)
         
         if self.weight is not None:
             return x_norm * self.weight + self.bias
@@ -187,10 +186,10 @@ class Blocks5Norm2(EvolvedLayer):
 class Blocks6Norm1(EvolvedLayer):
     """
     Original: blocks.6.norm1
-    Equation: 2.58*tanh(clip(x)) + 0.24
+    Equation: clip(2.08*x)
     """
     def forward(self, x):
-        x_norm = 2.58*torch.tanh(clip(x)) + 0.24
+        x_norm = clip(2.08*x)
         
         if self.weight is not None:
             return x_norm * self.weight + self.bias
@@ -199,10 +198,10 @@ class Blocks6Norm1(EvolvedLayer):
 class Blocks6Norm2(EvolvedLayer):
     """
     Original: blocks.6.norm2
-    Equation: 2.43*tanh(x) + 0.244
+    Equation: clip(1.9*x)
     """
     def forward(self, x):
-        x_norm = 2.43*torch.tanh(x) + 0.244
+        x_norm = clip(1.9*x)
         
         if self.weight is not None:
             return x_norm * self.weight + self.bias
@@ -211,10 +210,10 @@ class Blocks6Norm2(EvolvedLayer):
 class Blocks7Norm1(EvolvedLayer):
     """
     Original: blocks.7.norm1
-    Equation: 2.36*tanh(clip(x)) + 0.238
+    Equation: clip(1.85*x)
     """
     def forward(self, x):
-        x_norm = 2.36*torch.tanh(clip(x)) + 0.238
+        x_norm = clip(1.85*x)
         
         if self.weight is not None:
             return x_norm * self.weight + self.bias
@@ -223,10 +222,10 @@ class Blocks7Norm1(EvolvedLayer):
 class Blocks7Norm2(EvolvedLayer):
     """
     Original: blocks.7.norm2
-    Equation: 0.598*clip(2.92*x) + tanh((0.499 - 0.0953*x)*sigmoid(0.45*clip(x)))
+    Equation: clip(1.64*x)
     """
     def forward(self, x):
-        x_norm = 0.598*clip(2.92*x) + torch.tanh((0.499 - 0.0953*x)*sigmoid(0.45*clip(x)))
+        x_norm = clip(1.64*x)
         
         if self.weight is not None:
             return x_norm * self.weight + self.bias
@@ -235,10 +234,10 @@ class Blocks7Norm2(EvolvedLayer):
 class Blocks8Norm1(EvolvedLayer):
     """
     Original: blocks.8.norm1
-    Equation: 0.508*clip(3.22*x) + 0.214
+    Equation: clip(1.52*x)
     """
     def forward(self, x):
-        x_norm = 0.508*clip(3.22*x) + 0.214
+        x_norm = clip(1.52*x)
         
         if self.weight is not None:
             return x_norm * self.weight + self.bias
@@ -247,10 +246,10 @@ class Blocks8Norm1(EvolvedLayer):
 class Blocks8Norm2(EvolvedLayer):
     """
     Original: blocks.8.norm2
-    Equation: -0.113*x + 1.02*clip(clip(x) + tanh(0.79*clip(clip(x) + 0.107) + 0.19))
+    Equation: clip(1.38*x)
     """
     def forward(self, x):
-        x_norm = -0.113*x + 1.02*clip(clip(x) + torch.tanh(0.79*clip(clip(x) + 0.107) + 0.19))
+        x_norm = clip(1.38*x)
         
         if self.weight is not None:
             return x_norm * self.weight + self.bias
@@ -259,10 +258,10 @@ class Blocks8Norm2(EvolvedLayer):
 class Blocks9Norm1(EvolvedLayer):
     """
     Original: blocks.9.norm1
-    Equation: 0.492*clip(clip(2.39*x + 0.248*tanh(x)) + 0.398)
+    Equation: 0.507*clip(clip(2.5*x) + 0.382)
     """
     def forward(self, x):
-        x_norm = 0.492*clip(clip(2.39*x + 0.248*torch.tanh(x)) + 0.398)
+        x_norm = 0.507*clip(clip(2.5*x) + 0.382)
         
         if self.weight is not None:
             return x_norm * self.weight + self.bias
@@ -271,10 +270,10 @@ class Blocks9Norm1(EvolvedLayer):
 class Blocks9Norm2(EvolvedLayer):
     """
     Original: blocks.9.norm2
-    Equation: 0.487*clip(x + clip(1.41*x)) + 0.193
+    Equation: clip(x) + 0.161
     """
     def forward(self, x):
-        x_norm = 0.487*clip(x + clip(1.41*x)) + 0.193
+        x_norm = clip(x) + 0.161
         
         if self.weight is not None:
             return x_norm * self.weight + self.bias
@@ -283,10 +282,10 @@ class Blocks9Norm2(EvolvedLayer):
 class Blocks10Norm1(EvolvedLayer):
     """
     Original: blocks.10.norm1
-    Equation: clip(x) + clip(0.213 - 0.0305*x) - 0.0381
+    Equation: 0.48*clip(1.96*x)
     """
     def forward(self, x):
-        x_norm = clip(x) + clip(0.213 - 0.0305*x) - 0.0381
+        x_norm = 0.48*clip(1.96*x)
         
         if self.weight is not None:
             return x_norm * self.weight + self.bias
@@ -295,10 +294,10 @@ class Blocks10Norm1(EvolvedLayer):
 class Blocks10Norm2(EvolvedLayer):
     """
     Original: blocks.10.norm2
-    Equation: clip(x) + clip(clip(-0.117*x) + 0.153)
+    Equation: 0.78*clip(x)
     """
     def forward(self, x):
-        x_norm = clip(x) + clip(clip(-0.117*x) + 0.153)
+        x_norm = 0.78*clip(x)
         
         if self.weight is not None:
             return x_norm * self.weight + self.bias
@@ -307,10 +306,10 @@ class Blocks10Norm2(EvolvedLayer):
 class Blocks11Norm1(EvolvedLayer):
     """
     Original: blocks.11.norm1
-    Equation: -0.0285*x + 0.469*clip(x) + 0.469*clip(tanh(tanh(0.513*x))) + 0.103
+    Equation: 0.546*clip(x)
     """
     def forward(self, x):
-        x_norm = -0.0285*x + 0.469*clip(x) + 0.469*clip(torch.tanh(torch.tanh(0.513*x))) + 0.103
+        x_norm = 0.546*clip(x)
         
         if self.weight is not None:
             return x_norm * self.weight + self.bias
@@ -319,10 +318,10 @@ class Blocks11Norm1(EvolvedLayer):
 class Blocks11Norm2(EvolvedLayer):
     """
     Original: blocks.11.norm2
-    Equation: 0.918*clip(x)*sigmoid((x + clip(-0.92*x))*sigmoid(-0.0602*x))
+    Equation: 0.452*clip(x)
     """
     def forward(self, x):
-        x_norm = 0.918*clip(x)*sigmoid((x + clip(-0.92*x))*sigmoid(-0.0602*x))
+        x_norm = 0.452*clip(x)
         
         if self.weight is not None:
             return x_norm * self.weight + self.bias
@@ -331,10 +330,10 @@ class Blocks11Norm2(EvolvedLayer):
 class Norm(EvolvedLayer):
     """
     Original: norm
-    Equation: clip(0.687*clip(0.596*x - 1.2) + 0.911)
+    Equation: clip(0.416*x)
     """
     def forward(self, x):
-        x_norm = clip(0.687*clip(0.596*x - 1.2) + 0.911)
+        x_norm = clip(0.416*x)
         
         if self.weight is not None:
             return x_norm * self.weight + self.bias
