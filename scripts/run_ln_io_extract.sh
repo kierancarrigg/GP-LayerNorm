@@ -19,10 +19,18 @@ echo "CUDA_VISIBLE_DEVICES: $CUDA_VISIBLE_DEVICES"
 # --- Configuration ---
 IMAGENET_VAL=<IMAGENET_VAL_PATH>  # e.g. /data/imagenet/val
 
+# Extraction is architecture-agnostic: it hooks every nn.LayerNorm in the model.
+# ViT-B yields 25 layers, ViT-L 49.
+MODEL=vit_base_patch16_224
+OUTPUT_FILE=vit_b_ln_mappings_50000.npz
+# For ViT-L:
+#   MODEL=vit_large_patch16_224
+#   OUTPUT_FILE=vit_l_ln_mappings_50000.npz
+
 python gp/evolution/extract_mappings.py \
     --seed 42 \
     --imagenet_root $IMAGENET_VAL \
-    --model_name vit_base_patch16_224 \
+    --model_name $MODEL \
     --batch_size 64 \
     --points_per_forward 50000 \
-    --output_file ln_mappings.npz
+    --output_file $OUTPUT_FILE

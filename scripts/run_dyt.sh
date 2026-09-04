@@ -21,14 +21,25 @@ IMAGENET_PATH=<IMAGENET_PATH>     # e.g. /data/imagenet
 OUTPUT_DIR=<OUTPUT_DIR>           # e.g. /scratch/outputs
 SEED=${SLURM_ARRAY_TASK_ID:-0}
 
-torchrun --nproc_per_node=1 dyt_finetune/train.py \
+# --- Architecture ---
+# --batch_size is per GPU: ViT-B ran on 1 GPU at 512, ViT-L on 2 GPUs at 256, so both
+# give a global batch of 512.
+MODEL=vit_base_patch16_224
+NUM_GPUS=1
+BATCH_SIZE=512
+# For ViT-L, set --gres=gpu:2 above and use:
+#   MODEL=vit_large_patch16_224
+#   NUM_GPUS=2
+#   BATCH_SIZE=256
+
+torchrun --nproc_per_node=$NUM_GPUS dyt_finetune/train.py \
     --seed $SEED \
     --data_path $IMAGENET_PATH \
-    --model vit_base_patch16_224 \
+    --model $MODEL \
     --train_mode affine \
     --use_dyt true \
     --epochs 20 \
-    --batch_size 512 \
+    --batch_size $BATCH_SIZE \
     --num_workers 8 \
     --use_amp true \
     --lr 8e-3 \
