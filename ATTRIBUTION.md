@@ -88,7 +88,7 @@ All dependencies are licensed under permissive licenses (MIT, Apache 2.0) that a
 
 **Source**: https://github.com/sdevries0/Kozax  
 **License**: MIT License  
-**Install**: `pip install kozax`
+**Install**: from a pinned git commit (`8fa0187`) — see the Installation section of `README.md`. The FLOP-based complexity objective this project uses is not in any PyPI release.
 
 Kozax is an external JAX-based genetic programming library used to run GP evolution in this project. It is **not** an original contribution of this work.
 

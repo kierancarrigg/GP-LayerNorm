@@ -17,6 +17,7 @@ LayerNorm is a critical component in transformers, but recent work (DyT) has sho
 
 - **GP Evolution Pipeline**: Extract LN I/O mappings → Evolve functions → Generate PyTorch layers
 - **Finetuning Framework**: Efficient finetuning strategies for both GP-evolved and DyT models
+- **Two model scales**: the full pipeline is run independently for ViT-B/16 (25 normalization layers) and ViT-L/16 (49 normalization layers)
 
 
 GP evolution is powered by [Kozax](https://github.com/sdevries0/Kozax), an external JAX-based genetic programming library. This project uses Kozax's FLOP-based complexity feature, which is not yet in a PyPI release — see [Installation](#installation) for the pinned git install.
@@ -27,7 +28,9 @@ GP evolution is powered by [Kozax](https://github.com/sdevries0/Kozax), an exter
 GP-LayerNorm/
 ├── gp/                     # GP-based approach
 │   ├── evolution/          # Evolution pipeline (main.py, fitness.py, operators.py, extract_mappings.py)
-│   ├── layers/             # Evolved layer implementations (evolved_layers_seed_1.py – seed_5.py)
+│   ├── layers/             # Evolved layer implementations + generate_code.py
+│   │   ├── vit_b/          #   ViT-B: 25 layers × 5 seeds (evolved_layers_seed_1.py – seed_5.py)
+│   │   └── vit_l/          #   ViT-L: 49 layers × 5 seeds
 │   └── finetune/           # GP model finetuning (train.py)
 ├── dyt_finetune/           # DyT finetuning (train.py)
 ├── baselines/              # Baseline implementations (dyt.py — MIT licensed, adapted from DyT)
@@ -79,27 +82,40 @@ pip install -r requirements.txt
 <details>
 <summary><strong>1. Extract LayerNorm I/O Mappings</strong></summary>
 
-Extract input-output pairs from a pretrained ViT-B using ImageNet validation data:
+Extract input-output pairs from a pretrained ViT using ImageNet validation data:
 
 ```bash
+# ViT-B — 25 normalization layers
 python gp/evolution/extract_mappings.py \
     --model_name vit_base_patch16_224 \
     --imagenet_root /path/to/imagenet/val \
     --batch_size 64 \
     --points_per_forward 50000 \
-    --output_file ln_mappings.npz
+    --output_file vit_b_ln_mappings_50000.npz
+
+# ViT-L — 49 normalization layers
+python gp/evolution/extract_mappings.py \
+    --model_name vit_large_patch16_224 \
+    --imagenet_root /path/to/imagenet/val \
+    --batch_size 64 \
+    --points_per_forward 50000 \
+    --output_file vit_l_ln_mappings_50000.npz
 ```
+
+Extraction is architecture-agnostic: it hooks every `nn.LayerNorm` in the model, so the
+layer count follows from the architecture rather than from any setting here.
 
 </details>
 
 <details>
 <summary><strong>2. Evolve Normalization Functions</strong></summary>
 
-Run GP evolution to discover replacement functions for all 25 LN positions in ViT-B:
+Run GP evolution to discover replacement functions for every LN position — 25 in ViT-B,
+49 in ViT-L. The settings below are identical for both scales; only `--data_file` changes:
 
 ```bash
 python gp/evolution/main.py \
-    --data_file ln_mappings.npz \
+    --data_file vit_b_ln_mappings_50000.npz \
     --output_csv gp_results.csv \
     --num_generations 50 \
     --population_size 500 \
@@ -129,14 +145,25 @@ search only*, as a regulariser — at zero cost, GP stacks redundant clips for f
 Convert evolved GP expressions from the results CSV into PyTorch module files:
 
 ```bash
+# ViT-B
 python gp/layers/generate_code.py \
     --input_csv gp_results.csv \
-    --output_dir gp/layers/ \
+    --output_dir gp/layers/vit_b/ \
+    --strategy kneedle
+
+# ViT-L
+python gp/layers/generate_code.py \
+    --input_csv gp_results.csv \
+    --output_dir gp/layers/vit_l/ \
     --strategy kneedle
 ```
 
-This generates `gp/layers/evolved_layers_seed_1.py` through `evolved_layers_seed_5.py`.
-The pre-generated files used in the paper are already included in the repo — you only need this step if you run new evolution.
+This generates `evolved_layers_seed_1.py` through `evolved_layers_seed_5.py` in the chosen
+output directory. Layer sets are kept in per-architecture subdirectories because the evolved
+classes are named by position (`blocks.0.norm1` → `Blocks0Norm1`) and are therefore specific
+to the network they were evolved against; `gp/finetune/train.py` selects between them with
+`--gp_arch`. The pre-generated files used in the paper are already included in the repo —
+you only need this step if you run new evolution.
 
 `--strategy` controls how one solution is picked from each layer's Pareto front:
 
@@ -151,9 +178,20 @@ See [Reproducing Paper Results](#reproducing-paper-results) for finetuning comma
 
 ## Reproducing Paper Results
 
-All experiments use `vit_base_patch16_224` pretrained on ImageNet. Replace `/path/to/imagenet` with your ImageNet root. GP variants are run independently for seeds 1–5.
+Experiments use `vit_base_patch16_224` and `vit_large_patch16_224` pretrained on ImageNet.
+Replace `/path/to/imagenet` with your ImageNet root. GP variants are run independently for
+seeds 1–5. Every variant is fine-tuned for 20 epochs.
 
 > All commands below match the exact hyperparameters of the runs behind the results table.
+
+**A note on batch size and GPUs.** `--batch_size` is *per GPU*. The ViT-B runs used a single
+GPU at batch 512; the ViT-L runs used two GPUs at batch 256 each. Both therefore have a
+global batch of 512, which is held constant across every variant and both scales. The ViT-L
+commands are written in their two-GPU form because that is what produced the reported
+numbers — adjust `--nproc_per_node` and `--batch_size` together to keep the global batch at
+512 on a different setup.
+
+## ViT-B
 
 ### GP Variants
 
@@ -162,7 +200,7 @@ All experiments use `vit_base_patch16_224` pretrained on ImageNet. Replace `/pat
 
 ```bash
 python gp/finetune/train.py \
-    --gp_seed 1 \
+    --gp_seed 1 --gp_arch vit_b \
     --data_path /path/to/imagenet \
     --lr 1e-3 --lr_scheduler none \
     --weight_decay 0.0 --drop_path 0.0 \
@@ -176,7 +214,7 @@ python gp/finetune/train.py \
 
 ```bash
 python gp/finetune/train.py \
-    --gp_seed 1 \
+    --gp_seed 1 --gp_arch vit_b \
     --data_path /path/to/imagenet \
     --train_mode full \
     --lr 1e-5 --lr_scheduler cosine \
@@ -191,7 +229,7 @@ python gp/finetune/train.py \
 
 ```bash
 python gp/finetune/train.py \
-    --gp_seed 1 \
+    --gp_seed 1 --gp_arch vit_b \
     --data_path /path/to/imagenet \
     --train_mode full --distill_logit true \
     --lr 1e-5 --lr_scheduler cosine \
@@ -260,30 +298,157 @@ python dyt_finetune/train.py \
 
 </details>
 
+## ViT-L
+
+ViT-L runs use two GPUs at `--batch_size 256` each (global batch 512, as for ViT-B). GP
+variants additionally need `--gp_arch vit_l` so the 49-layer evolved set is loaded; a
+mismatch between `--gp_arch` and `--model` is rejected at startup rather than silently
+training a partially-converted model.
+
+### GP Variants
+
+<details>
+<summary><strong>GP-A</strong> — affine-only (frozen backbone, only evolved layer params trained)</summary>
+
+```bash
+torchrun --nproc_per_node=2 gp/finetune/train.py \
+    --gp_seed 1 --gp_arch vit_l \
+    --model vit_large_patch16_224 \
+    --data_path /path/to/imagenet \
+    --batch_size 256 \
+    --lr 2e-3 --lr_scheduler cosine \
+    --weight_decay 0.0 --drop_path 0.0 \
+    --output_dir ./checkpoints/vitl_gp_a_seed1
+```
+
+</details>
+
+<details>
+<summary><strong>GP-F</strong> — full model finetuning</summary>
+
+```bash
+torchrun --nproc_per_node=2 gp/finetune/train.py \
+    --gp_seed 1 --gp_arch vit_l \
+    --model vit_large_patch16_224 \
+    --data_path /path/to/imagenet \
+    --batch_size 256 \
+    --train_mode full \
+    --lr 1e-5 --lr_scheduler cosine \
+    --weight_decay 0.05 --drop_path 0.2 \
+    --output_dir ./checkpoints/vitl_gp_f_seed1
+```
+
+</details>
+
+<details>
+<summary><strong>GP-D</strong> — full model + logit distillation from pretrained LN teacher</summary>
+
+```bash
+torchrun --nproc_per_node=2 gp/finetune/train.py \
+    --gp_seed 1 --gp_arch vit_l \
+    --model vit_large_patch16_224 \
+    --data_path /path/to/imagenet \
+    --batch_size 256 \
+    --train_mode full --distill_logit true \
+    --lr 1e-5 --lr_scheduler cosine \
+    --weight_decay 0.05 --drop_path 0.2 \
+    --output_dir ./checkpoints/vitl_gp_d_seed1
+```
+
+</details>
+
+### DyT Variants
+
+<details>
+<summary><strong>DyT-A</strong> — affine-only</summary>
+
+```bash
+torchrun --nproc_per_node=2 dyt_finetune/train.py \
+    --model vit_large_patch16_224 \
+    --data_path /path/to/imagenet \
+    --batch_size 256 \
+    --train_mode affine \
+    --lr 8e-3 --lr_scheduler cosine \
+    --output_dir ./checkpoints/vitl_dyt_a
+```
+
+</details>
+
+<details>
+<summary><strong>DyT-F</strong> — full model with per-group learning rates</summary>
+
+```bash
+torchrun --nproc_per_node=2 dyt_finetune/train.py \
+    --model vit_large_patch16_224 \
+    --data_path /path/to/imagenet \
+    --batch_size 256 \
+    --train_mode full \
+    --lr_backbone 2e-5 --lr_affine 1e-4 --lr_alpha 5e-5 \
+    --lr_scheduler cosine \
+    --weight_decay 0.05 --drop_path 0.2 \
+    --output_dir ./checkpoints/vitl_dyt_f
+```
+
+</details>
+
+<details>
+<summary><strong>DyT-D</strong> — full model + logit distillation</summary>
+
+```bash
+torchrun --nproc_per_node=2 dyt_finetune/train.py \
+    --model vit_large_patch16_224 \
+    --data_path /path/to/imagenet \
+    --batch_size 256 \
+    --train_mode full --distill_logit true \
+    --lr_backbone 3e-5 --lr_affine 1e-4 --lr_alpha 5e-5 \
+    --lr_scheduler cosine \
+    --weight_decay 0.05 --drop_path 0.2 \
+    --output_dir ./checkpoints/vitl_dyt_d
+```
+
+</details>
+
+### LN Baseline
+
+<details>
+<summary><strong>LN</strong> — full finetuning without normalization replacement</summary>
+
+```bash
+torchrun --nproc_per_node=2 dyt_finetune/train.py \
+    --model vit_large_patch16_224 \
+    --data_path /path/to/imagenet \
+    --batch_size 256 \
+    --use_dyt false --train_mode full \
+    --lr 1e-6 --lr_scheduler cosine \
+    --weight_decay 0.05 --drop_path 0.2 \
+    --output_dir ./checkpoints/vitl_ln
+```
+
+</details>
+
+
 ## Results
 
 Classification performance of the evolved symbolic normalizations (GP) against standard LayerNorm and
-Dynamic Tanh (DyT) baselines on the ImageNet-1K validation set, using a pretrained ViT-B architecture.
-All fine-tuned variants are trained for 20 epochs and evaluated across 5 independent runs (mean ± std).
-Bold marks the better method within each fine-tuning regime.
+Dynamic Tanh (DyT) baselines on the ImageNet-1K validation set, using pretrained ViT-B and ViT-L
+architectures. All fine-tuned variants are trained for 20 epochs and evaluated across 5 independent
+runs (mean ± std). Bold marks the better method within each fine-tuning regime, per architecture.
 
-| Method | Top-1 Acc (%) | Top-5 Acc (%) |
-|--------|--------------|---------------|
-| ***Literature & reference baselines*** | | |
-| Pre-trained ViT-B (no fine-tuning) | 80.99 | 95.73 |
-| Original DyT (trained from scratch) † | 82.5 | — |
-| Standard ViT-B (LN fine-tuning) | 84.99 ± 0.02 | 97.43 ± 0.02 |
-| ***Affine-only fine-tuning*** | | |
-| DyT-A | **83.19 ± 0.03** | **96.74 ± 0.02** |
-| GP-A (Ours) | 82.48 ± 0.20 | 96.43 ± 0.06 |
-| ***Full fine-tuning*** | | |
-| DyT-F | 82.81 ± 0.02 | 96.60 ± 0.02 |
-| GP-F (Ours) | **84.07 ± 0.06** | **97.10 ± 0.03** |
-| ***Knowledge distillation*** | | |
-| DyT-D | 83.36 ± 0.04 | 96.79 ± 0.05 |
-| GP-D (Ours) | **84.32 ± 0.01** | **97.15 ± 0.01** |
-
-† Reported supervised classification accuracy from the original DyT paper (Zhu et al., CVPR 2025).
+| | ViT-B | | ViT-L | |
+|--------|--------------|---------------|--------------|---------------|
+| **Method** | **Top-1 (%)** | **Top-5 (%)** | **Top-1 (%)** | **Top-5 (%)** |
+| ***Literature & reference baselines*** | | | | |
+| Pre-trained (no fine-tuning) | 80.99 | 95.73 | 84.31 | 97.19 |
+| LN fine-tuning | 84.99 ± 0.02 | 97.43 ± 0.02 | 86.17 ± 0.01 | 97.91 ± 0.01 |
+| ***Affine-only fine-tuning*** | | | | |
+| DyT-A | **83.19 ± 0.03** | **96.74 ± 0.02** | 84.77 ± 0.01 | 97.46 ± 0.02 |
+| GP-A (Ours) | 82.48 ± 0.20 | 96.43 ± 0.06 | **84.85 ± 0.02** | 97.46 ± 0.02 |
+| ***Full fine-tuning*** | | | | |
+| DyT-F | 82.81 ± 0.02 | 96.60 ± 0.02 | 84.23 ± 0.05 | 97.19 ± 0.02 |
+| GP-F (Ours) | **84.07 ± 0.06** | **97.10 ± 0.03** | **85.19 ± 0.02** | **97.64 ± 0.01** |
+| ***Knowledge distillation*** | | | | |
+| DyT-D | 83.36 ± 0.04 | 96.79 ± 0.05 | 84.85 ± 0.03 | 97.41 ± 0.03 |
+| GP-D (Ours) | **84.32 ± 0.01** | **97.15 ± 0.01** | **85.74 ± 0.02** | **97.77 ± 0.02** |
 
 ## Citation
 
