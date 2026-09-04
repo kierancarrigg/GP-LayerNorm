@@ -1,8 +1,9 @@
 """GP fine-tuning script: fine-tune a ViT with evolved LayerNorm replacements on ImageNet.
 
-Loads a dynamically generated evolved_layers_seed_N module from gp/layers/, injects the
-evolved expressions into a pretrained ViT, then fine-tunes either the full model or just
-the normalization affine parameters. Supports logit-distillation from a frozen teacher.
+Loads a dynamically generated evolved_layers_seed_N module from gp/layers/<gp_arch>/,
+injects the evolved expressions into a pretrained ViT, then fine-tunes either the full
+model or just the normalization affine parameters. Supports logit-distillation from a
+frozen teacher.
 """
 import argparse
 import datetime
@@ -78,6 +79,9 @@ def get_args_parser():
 
     # --- GP Specific ---
     parser.add_argument('--gp_seed', default=1, type=int, help="Which GP seed to load evolved layers from (1-5)")
+    parser.add_argument('--gp_arch', default='vit_b', type=str, choices=['vit_b', 'vit_l'],
+                        help="Which architecture's evolved layers to load from gp/layers/ "
+                             "(vit_b: 25 layers, vit_l: 49 layers). Must match --model.")
     parser.add_argument('--train_mode', default='affine', type=str, choices=['affine', 'full'],
                         help='affine: train only norm weights/biases. full: train everything.')
     parser.add_argument('--distill_logit', type=str2bool, default=False,
@@ -143,10 +147,11 @@ def get_args_parser():
 def main(args):
     """Fine-tune a ViT with injected evolved LayerNorm replacements.
 
-    Dynamically loads the evolved layer module for the requested GP seed, injects the
-    evolved expressions into a pretrained model, configures which parameters are trained,
-    optionally sets up a frozen teacher for logit distillation, then runs the training
-    loop with per-epoch validation, saving last and best checkpoints to output_dir.
+    Dynamically loads the evolved layer module for the requested architecture and GP seed,
+    injects the evolved expressions into a pretrained model, verifies that every LayerNorm
+    was replaced, configures which parameters are trained, optionally sets up a frozen
+    teacher for logit distillation, then runs the training loop with per-epoch validation,
+    saving last and best checkpoints to output_dir.
 
     Args:
         args: Parsed argument namespace from get_args_parser.
@@ -194,9 +199,11 @@ def main(args):
     )
     
     # 3. APPLY EVOLUTION (Dynamically Loaded)
-    print(f"Loading Evolved Layers for Seed: {args.gp_seed}...")
+    print(f"Loading Evolved Layers for {args.gp_arch}, Seed: {args.gp_seed}...")
 
-    layers_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "layers")
+    layers_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "layers", args.gp_arch
+    )
     if layers_dir not in sys.path:
         sys.path.append(layers_dir)
 
@@ -206,11 +213,42 @@ def main(args):
         apply_evolution = evolved_module.apply_evolution
         EvolvedLayer = evolved_module.EvolvedLayer
     except ImportError:
-        print(f"❌ Error: Could not find {module_name}.py! Did you run generate_model_code.py?")
+        print(f"❌ Error: Could not find {module_name}.py in {layers_dir}! "
+              f"Did you run generate_code.py?")
         return
+
+    # Guard against a --gp_arch / --model mismatch before touching the model. The evolved
+    # layers are matched to the model by position name (blocks.0.norm1 -> Blocks0Norm1), so
+    # a mismatch fails silently in both directions: a ViT-B layer set injected into ViT-L
+    # replaces only the first 25 of 49 positions, while a ViT-L set injected into ViT-B
+    # replaces all 25 but with expressions evolved for a different network's depths. Both
+    # train happily and produce meaningless results, so compare the counts up front.
+    n_ln = sum(1 for _, m in model.named_modules() if isinstance(m, nn.LayerNorm))
+    n_evolved = sum(
+        1 for obj in vars(evolved_module).values()
+        if isinstance(obj, type) and issubclass(obj, EvolvedLayer) and obj is not EvolvedLayer
+    )
+    if n_evolved != n_ln:
+        raise RuntimeError(
+            f"Architecture mismatch: --gp_arch {args.gp_arch} provides {n_evolved} evolved "
+            f"layers but --model {args.model} has {n_ln} LayerNorm layers. "
+            f"Use --gp_arch vit_b with vit_base_patch16_224 (25 layers) and --gp_arch vit_l "
+            f"with vit_large_patch16_224 (49 layers)."
+        )
 
     print("Injecting Evolved Layers...")
     model = apply_evolution(model, verbose=True)
+
+    # Belt and braces: every LayerNorm must actually be gone. Catches a naming drift between
+    # generate_code.py's class names and the model's module paths, which the count check
+    # above cannot see.
+    leftover = [n for n, m in model.named_modules() if isinstance(m, nn.LayerNorm)]
+    if leftover:
+        raise RuntimeError(
+            f"Injection incomplete: {len(leftover)} of {n_ln} LayerNorm layers were not "
+            f"replaced (e.g. {', '.join(leftover[:3])}). The evolved layer class names in "
+            f"{module_name}.py do not match this model's module paths."
+        )
 
     print("\n--- Verifying Injected Equations ---")
     for name, module in model.named_modules():
